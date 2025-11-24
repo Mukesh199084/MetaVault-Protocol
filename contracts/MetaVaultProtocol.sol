@@ -1,40 +1,14 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
-
-/**
- * @title MetaVault Protocol
- * @dev A decentralized vault system for secure asset storage and management
- * @notice This contract allows users to deposit, withdraw, and manage their crypto assets
- */
-contract MetaVaultProtocol {
-    
-    // State variables
+State variables
     address public owner;
     uint256 public totalDeposits;
     uint256 public vaultCount;
     
-    // Struct to represent a vault
-    struct Vault {
-        uint256 id;
-        address owner;
-        uint256 balance;
-        uint256 depositTime;
-        bool isActive;
-    }
-    
-    // Mappings
+    Mappings
     mapping(address => Vault[]) public userVaults;
     mapping(uint256 => Vault) public vaults;
     mapping(address => uint256) public userTotalBalance;
     
-    // Events
-    event VaultCreated(uint256 indexed vaultId, address indexed owner, uint256 timestamp);
-    event DepositMade(uint256 indexed vaultId, address indexed owner, uint256 amount);
-    event WithdrawalMade(uint256 indexed vaultId, address indexed owner, uint256 amount);
-    event VaultClosed(uint256 indexed vaultId, address indexed owner);
-    event EmergencyWithdrawal(address indexed owner, uint256 amount);
-    
-    // Modifiers
+    Modifiers
     modifier onlyOwner() {
         require(msg.sender == owner, "Only contract owner can call this");
         _;
@@ -97,32 +71,7 @@ contract MetaVaultProtocol {
         userTotalBalance[msg.sender] += msg.value;
         totalDeposits += msg.value;
         
-        // Update in user's vault array
-        Vault[] storage userVaultList = userVaults[msg.sender];
-        for (uint256 i = 0; i < userVaultList.length; i++) {
-            if (userVaultList[i].id == _vaultId) {
-                userVaultList[i].balance += msg.value;
-                break;
-            }
-        }
-        
-        emit DepositMade(_vaultId, msg.sender, msg.value);
-    }
-    
-    /**
-     * @dev Core Function 3: Withdraw funds from a vault
-     * @param _vaultId The ID of the vault to withdraw from
-     * @param _amount The amount to withdraw
-     */
-    function withdraw(uint256 _vaultId, uint256 _amount) external vaultExists(_vaultId) onlyVaultOwner(_vaultId) {
-        require(_amount > 0, "Withdrawal amount must be greater than 0");
-        require(vaults[_vaultId].balance >= _amount, "Insufficient vault balance");
-        
-        vaults[_vaultId].balance -= _amount;
-        userTotalBalance[msg.sender] -= _amount;
-        totalDeposits -= _amount;
-        
-        // Update in user's vault array
+        Update in user's vault array
         Vault[] storage userVaultList = userVaults[msg.sender];
         for (uint256 i = 0; i < userVaultList.length; i++) {
             if (userVaultList[i].id == _vaultId) {
@@ -175,67 +124,11 @@ contract MetaVaultProtocol {
         userTotalBalance[msg.sender] -= balance;
         totalDeposits -= balance;
         
-        // Update in user's vault array
-        Vault[] storage userVaultList = userVaults[msg.sender];
-        for (uint256 i = 0; i < userVaultList.length; i++) {
-            if (userVaultList[i].id == _vaultId) {
-                userVaultList[i].balance = 0;
-                userVaultList[i].isActive = false;
-                break;
-            }
-        }
-        
-        if (balance > 0) {
-            (bool success, ) = payable(msg.sender).call{value: balance}("");
-            require(success, "Transfer failed");
-        }
-        
-        emit VaultClosed(_vaultId, msg.sender);
-        emit WithdrawalMade(_vaultId, msg.sender, balance);
-    }
-    
-    /**
-     * @dev Get all vaults for a specific user
-     * @param _user The address of the user
-     * @return Array of user's vaults
-     */
-    function getUserVaults(address _user) external view returns (Vault[] memory) {
-        return userVaults[_user];
-    }
-    
-    /**
-     * @dev Get total balance for a user across all vaults
-     * @param _user The address of the user
-     * @return Total balance
-     */
-    function getUserTotalBalance(address _user) external view returns (uint256) {
-        return userTotalBalance[_user];
-    }
-    
-    /**
-     * @dev Get contract statistics
-     * @return Total number of vaults and total deposits
-     */
-    function getContractStats() external view returns (uint256, uint256) {
-        return (vaultCount, totalDeposits);
-    }
-    
-    /**
-     * @dev Emergency withdrawal function (only contract owner)
-     * @notice Allows contract owner to withdraw funds in case of emergency
-     */
-    function emergencyWithdraw() external onlyOwner {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No funds to withdraw");
-        
-        (bool success, ) = payable(owner).call{value: balance}("");
-        require(success, "Emergency withdrawal failed");
-        
-        emit EmergencyWithdrawal(owner, balance);
-    }
-    
-    // Fallback function to receive Ether
+        Fallback function to receive Ether
     receive() external payable {
         totalDeposits += msg.value;
     }
 }
+// 
+End
+// 
