@@ -1,88 +1,103 @@
-------------------------------------------------------
-    ------------------------------------------------------
-    event Deposit(address indexed user, uint256 amount, uint256 sharesMinted);
-    event Withdraw(address indexed user, uint256 amount, uint256 sharesBurned);
-    event StrategyUpdated(address indexed newStrategy);
-    event Paused(address indexed by);
-    event Unpaused(address indexed by);
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
 
-    STORAGE
-    e.g., USDC, DAI
-    IStrategy public strategy;              ------------------------------------------------------
-    ------------------------------------------------------
+/**
+ * @title MetaVault Protocol
+ * @notice A decentralized vault where users deposit ERC-20 tokens to earn yield.
+ * Admin can set yield rate and manage vault operations.
+ */
+
+interface IERC20 {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from,address to,uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
+contract MetaVaultProtocol {
+    IERC20 public depositToken;
+    address public owner;
+    uint256 public interestRatePerSecond; // interest per second, 18 decimals
+
+    struct UserInfo {
+        uint256 deposited;
+        uint256 rewardDebt;
+        uint256 lastUpdated;
+    }
+
+    mapping(address => UserInfo) public users;
+
+    event Deposited(address indexed user, uint256 amount);
+    event Withdrawn(address indexed user, uint256 amount, uint256 reward);
+    event InterestRateUpdated(uint256 newRate);
+
     modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
+        require(msg.sender == owner, "Not authorized");
         _;
     }
 
-    modifier notPaused() {
-        require(!paused, "Paused");
-        _;
+    constructor(address _depositToken, uint256 _interestRatePerSecond) {
+        depositToken = IERC20(_depositToken);
+        interestRatePerSecond = _interestRatePerSecond;
+        owner = msg.sender;
     }
 
-    CONSTRUCTOR
-    ------------------------------------------------------
-    ------------------------------------------------------
-    function totalAssets() public view returns (uint256) {
-        uint256 vaultBalance = asset.balanceOf(address(this));
-        uint256 strategyBalance = strategy.totalAssets();
-        return vaultBalance + strategyBalance;
+    function _pendingRewards(address user) internal view returns (uint256) {
+        UserInfo memory u = users[user];
+        if (u.deposited == 0) return 0;
+        uint256 duration = block.timestamp - u.lastUpdated;
+        return u.deposited * interestRatePerSecond * duration / 1e18;
     }
 
-    function convertToShares(uint256 assets) public view returns (uint256) {
-        return (totalShares == 0) ? assets : (assets * totalShares / totalAssets());
-    }
-
-    function convertToAssets(uint256 shares) public view returns (uint256) {
-        return (totalShares == 0) ? shares : (shares * totalAssets() / totalShares);
-    }
-
-    CORE VAULT LOGIC
-    Pull tokens
-        asset.transferFrom(msg.sender, address(this), amount);
-
-        Optionally auto-deposit into strategy
-        if (address(strategy) != address(0)) {
-            asset.approve(address(strategy), amount);
-            strategy.deposit(amount);
+    function _updateRewards(address user) internal {
+        if (users[user].deposited > 0) {
+            users[user].rewardDebt += _pendingRewards(user);
         }
+        users[user].lastUpdated = block.timestamp;
     }
 
-    function withdraw(uint256 shares) external notPaused returns (uint256 assetsOut) {
-        require(shares > 0, "Shares = 0");
-        require(shareBalance[msg.sender] >= shares, "Not enough shares");
+    /** Deposit tokens to the vault */
+    function deposit(uint256 amount) external {
+        require(amount > 0, "Amount > 0");
+        _updateRewards(msg.sender);
 
-        assetsOut = convertToAssets(shares);
+        users[msg.sender].deposited += amount;
+        depositToken.transferFrom(msg.sender, address(this), amount);
 
-        If assets are in strategy, withdraw them
-        uint256 vaultBalance = asset.balanceOf(address(this));
-        if (vaultBalance < assetsOut) {
-            uint256 needed = assetsOut - vaultBalance;
-            strategy.withdraw(needed);
-        }
-
-        asset.transfer(msg.sender, assetsOut);
+        emit Deposited(msg.sender, amount);
     }
 
-    OWNER FUNCTIONS
-    // ------------------------------------------------------
-    function setStrategy(address _strategy) external onlyOwner {
-        require(_strategy != address(0), "Invalid strategy");
-        strategy = IStrategy(_strategy);
-        emit StrategyUpdated(_strategy);
+    /** Withdraw tokens and accumulated rewards */
+    function withdraw(uint256 amount) external {
+        require(users[msg.sender].deposited >= amount, "Insufficient balance");
+        _updateRewards(msg.sender);
+
+        uint256 totalReward = users[msg.sender].rewardDebt;
+        users[msg.sender].rewardDebt = 0;
+        users[msg.sender].deposited -= amount;
+
+        depositToken.transfer(msg.sender, amount + totalReward);
+
+        emit Withdrawn(msg.sender, amount, totalReward);
     }
 
-    function setPaused(bool _paused) external onlyOwner {
-        paused = _paused;
-        if (_paused) emit Paused(msg.sender);
-        else emit Unpaused(msg.sender);
+    /** View pending rewards for a user */
+    function pendingRewards(address user) external view returns (uint256) {
+        return users[user].rewardDebt + _pendingRewards(user);
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Zero addr");
-        owner = newOwner;
+    /** Admin updates interest rate */
+    function setInterestRate(uint256 newRatePerSecond) external onlyOwner {
+        interestRatePerSecond = newRatePerSecond;
+        emit InterestRateUpdated(newRatePerSecond);
+    }
+
+    /** Emergency withdrawal of vault tokens by owner */
+    function emergencyWithdraw(uint256 amount) external onlyOwner {
+        depositToken.transfer(owner, amount);
+    }
+
+    /** Get user's deposited balance */
+    function getDeposited(address user) external view returns (uint256) {
+        return users[user].deposited;
     }
 }
-// 
-Contract End
-// 
